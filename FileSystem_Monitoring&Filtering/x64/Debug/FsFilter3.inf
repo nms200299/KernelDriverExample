@@ -10,7 +10,7 @@ ClassGuid   = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}    ;This value is determine
 ;Class = "_TODO_Change_Class_appropriately_"
 ;ClassGuid = {_TODO_Change_ClassGuid_appropriately_}
 Provider    = %ManufacturerName%
-DriverVer = 06/02/2025,1.54.28.277
+DriverVer = 06/02/2025,21.11.55.107
 CatalogFile = FsFilter3.cat
 PnpLockDown=1
 

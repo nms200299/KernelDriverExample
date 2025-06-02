@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>C:\Users\2N\Desktop\FileMonitoringAndFiltering\x64\Debug\FsFilter3.sys</FullPath>
+      <FullPath>C:\Users\2N\Desktop\KernelDriverExample\FileSystem_Monitoring&amp;Filtering\x64\Debug\FsFilter3.sys</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

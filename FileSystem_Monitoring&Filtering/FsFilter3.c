@@ -140,16 +140,12 @@ DriverEntry (
                                 &FilterRegistration,
                                 &gFilterHandle );
 
-    status = STATUS_SUCCESS;
-
     FLT_ASSERT( NT_SUCCESS( status ) );
 
     if (NT_SUCCESS( status )) {
-
         status = FltStartFiltering( gFilterHandle );
 
         if (!NT_SUCCESS( status )) {
-
             FltUnregisterFilter( gFilterHandle );
         }
     }

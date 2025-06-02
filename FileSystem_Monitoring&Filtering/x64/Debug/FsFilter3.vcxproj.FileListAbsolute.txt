@@ -1,1 +1,2 @@
 C:\Users\2N\Desktop\FileMonitoringAndFiltering\x64\Debug\FsFilter3.sys
+C:\Users\2N\Desktop\KernelDriverExample\FileSystem_Monitoring&Filtering\x64\Debug\FsFilter3.sys
