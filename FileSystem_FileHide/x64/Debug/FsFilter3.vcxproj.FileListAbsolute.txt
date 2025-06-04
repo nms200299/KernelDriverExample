@@ -1,0 +1,1 @@
+C:\Users\2N\Desktop\KernelDriverExample\FileSystem_FileHide\x64\Debug\File_Hide.sys
