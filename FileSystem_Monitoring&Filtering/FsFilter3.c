@@ -37,7 +37,7 @@ DriverEntry (
     );
 
 NTSTATUS
-FsFilter3Unload (
+FsFilterUnload (
     _In_ FLT_FILTER_UNLOAD_FLAGS Flags
     );
 
@@ -65,7 +65,7 @@ EXTERN_C_END
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT, DriverEntry)
-#pragma alloc_text(PAGE, FsFilter3Unload)
+#pragma alloc_text(PAGE, FsFilterUnload)
 #endif
 
 //
@@ -111,7 +111,7 @@ CONST FLT_REGISTRATION FilterRegistration = {
     0,                                  //  Flags
     NULL,                               //  Context
     Callbacks,                          //  Operation callbacks
-    FsFilter3Unload,                    //  MiniFilterUnload 
+    FsFilterUnload,                     //  MiniFilterUnload 
     NULL,                               //  InstanceSetup
     NULL,                               //  InstanceQueryTeardown
     NULL,                               //  InstanceTeardownStart
@@ -154,7 +154,7 @@ DriverEntry (
 }
 
 NTSTATUS
-FsFilter3Unload (
+FsFilterUnload (
     _In_ FLT_FILTER_UNLOAD_FLAGS Flags
     )
 {
