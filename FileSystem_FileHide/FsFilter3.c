@@ -130,6 +130,172 @@ FsFilterUnload (
     FltUnregisterFilter( gFilterHandle );
     return STATUS_SUCCESS;
 }
+/*************************************************************************
+   UserDefined Function.
+*************************************************************************/
+
+
+#define IPR_TO_NULL         1
+#define IPR_TO_NEXT         2
+#define PREV_TO_NULL        3
+#define PREV_TO_NEXT        4
+#define NEXT_LIST           5
+#define STOP_LIST           6
+
+PVOID CmpFileList(
+    PWCH CurrentFileNameBuf,
+    ULONG CurrentFileNameLen,
+    PUNICODE_STRING CmpFileName,
+    PVOID PrevListAddr,
+    PVOID CurrentAddr,
+    ULONG NextListOffset,
+    PULONG Flag
+) {
+    PVOID NextListAddr = (PVOID)((PUCHAR)CurrentAddr + NextListOffset);
+
+
+    UNICODE_STRING CurrentFileName;
+    CurrentFileName.Buffer = CurrentFileNameBuf;
+    CurrentFileName.Length = (USHORT)CurrentFileNameLen;
+    CurrentFileName.MaximumLength = CurrentFileName.Length;
+    // 문자열 비교를 위해 UNICODE_STRING 구조체를 채워줌
+
+    DbgPrint("[MINIFILTER] CurrentFileName : %wZ", &CurrentFileName);
+
+    if (RtlCompareUnicodeString(&CurrentFileName, CmpFileName, TRUE) == 0) {
+            if (PrevListAddr == CurrentAddr) {
+                if (NextListOffset == 0) {
+                    *Flag = IPR_TO_NULL;
+                    return NULL;
+                } else {
+                    *Flag = IPR_TO_NEXT;
+                    return NextListAddr;
+                }
+            } else {
+                if (NextListOffset == 0) {
+                    *Flag = PREV_TO_NULL;
+                    return NULL;
+                }
+                else {
+                    *Flag = PREV_TO_NEXT;
+                    return NextListAddr;
+                }
+            }
+    }
+
+    if (NextListOffset == 0) {
+        *Flag = STOP_LIST;
+        return NULL;
+    }
+
+    *Flag = NEXT_LIST;
+    return NextListAddr;
+}
+
+
+PVOID IterDirInfo(PVOID DirBuffer, PUNICODE_STRING CmpFileName) {
+    PFILE_DIRECTORY_INFORMATION pCurrentList = (PFILE_DIRECTORY_INFORMATION)DirBuffer;
+    PFILE_DIRECTORY_INFORMATION PrevListAddr = pCurrentList;
+    ULONG Flag = 0;
+
+    while (Flag != STOP_LIST) {
+        PVOID pNextListAddr = CmpFileList(pCurrentList->FileName,
+            pCurrentList->FileNameLength,
+            CmpFileName,
+            (PVOID)PrevListAddr,
+            (PVOID)pCurrentList,
+            pCurrentList->NextEntryOffset,
+            &Flag);
+
+        switch (Flag){
+            case IPR_TO_NULL: {
+                pCurrentList = NULL;
+                return NULL;
+                break;
+            }
+            case IPR_TO_NEXT: {
+                return pNextListAddr;
+                break;
+            }
+            case PREV_TO_NULL: {
+                PrevListAddr->NextEntryOffset = 0;
+                return DirBuffer;
+                break;
+            }
+            case PREV_TO_NEXT: {
+                PrevListAddr->NextEntryOffset = (ULONG)((PUCHAR)pNextListAddr - (PUCHAR)PrevListAddr);
+                break;
+            }
+            case NEXT_LIST: {
+                PrevListAddr = pCurrentList;
+                pCurrentList = pNextListAddr;
+                break;
+            }
+        }
+    }
+    return DirBuffer;
+}
+
+//IterNameInfo(PVOID DirectoryBuffer) {
+//
+//}
+//
+PVOID IterIdBothDirInfo(PVOID DirBuffer, PUNICODE_STRING CmpFileName) {
+    PFILE_ID_BOTH_DIR_INFORMATION pCurrentList = (PFILE_ID_BOTH_DIR_INFORMATION)DirBuffer;
+    PFILE_ID_BOTH_DIR_INFORMATION PrevListAddr = pCurrentList;
+    ULONG Flag = 0;
+
+    while (Flag != STOP_LIST) {
+        PVOID pNextListAddr = CmpFileList(pCurrentList->FileName,
+            pCurrentList->FileNameLength,
+            CmpFileName,
+            (PVOID)PrevListAddr,
+            (PVOID)pCurrentList,
+            pCurrentList->NextEntryOffset,
+            &Flag);
+
+        switch (Flag) {
+            case IPR_TO_NULL: {
+                pCurrentList = NULL;
+                return NULL;
+                break;
+            }
+            case IPR_TO_NEXT: {
+                return pNextListAddr;
+                break;
+            }
+            case PREV_TO_NULL: {
+                PrevListAddr->NextEntryOffset = 0;
+                return DirBuffer;
+                break;
+            }
+            case PREV_TO_NEXT: {
+                PrevListAddr->NextEntryOffset = (ULONG)((PUCHAR)pNextListAddr - (PUCHAR)PrevListAddr);
+                return DirBuffer;
+                break;
+            }
+            case NEXT_LIST: {
+                PrevListAddr = pCurrentList;
+                pCurrentList = pNextListAddr;
+                break;
+            }
+        }
+    }
+    return DirBuffer;
+}
+
+//IterIdFullDirInfo(PVOID DirectoryBuffer) {
+//
+//}
+//
+//IterBothDirInfo(PVOID DirectoryBuffer) {
+//
+//}
+//
+//IterFullDirInfo(PVOID DirectoryBuffer) {
+//
+//}
+
 
 /*************************************************************************
     MiniFilter callback routines.
@@ -170,48 +336,53 @@ PostOperation(
                         return FLT_POSTOP_FINISHED_PROCESSING;
                     } // 요청 경로에 대한 정보를 얻어오지 못하면 return
 
-                    DbgPrint("[MINIFILTER] DirQuery : %wZ", &pCurrentPath->Name);
+                   
 
-                    UNICODE_STRING CmpPath = RTL_CONSTANT_STRING(L"\\DEVICE\\HARDDISKVOLUME*\\");
+                    UNICODE_STRING CmpPath = RTL_CONSTANT_STRING(L"\\DEVICE\\HARDDISKVOLUME*\\TEST");
                     BOOLEAN result = FsRtlIsNameInExpression(&CmpPath, &pCurrentPath->Name, TRUE, NULL);
+
                     FltReleaseFileNameInformation(pCurrentPath);
                     if (!result) {
                         return FLT_POSTOP_FINISHED_PROCESSING;
                     } // 드라이버 볼륨(파티션) 최상위 경로(ex. C:\)에 대한 요청이 아니면 return
 
+                    UNICODE_STRING CmpFileName = RTL_CONSTANT_STRING(L"TEST.TXT");
 
-                    VOID* pCurrentList = NULL;
                     switch (Data->Iopb->Parameters.DirectoryControl.QueryDirectory.FileInformationClass) {
                         case FileDirectoryInformation: {
-                            pCurrentList = (PFILE_DIRECTORY_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
+                            Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer =
+                                IterDirInfo(Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer, &CmpFileName);
                             break;
                         }
-                        case FileNamesInformation: {
-                            pCurrentList = (PFILE_NAMES_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
-                            break;
-                        }
+                        //case FileNamesInformation: {
+                        //    PFILE_NAMES_INFORMATION pCurrentList = (PFILE_NAMES_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
+                        //    break;
+                        //}
                         case FileIdBothDirectoryInformation: {
-                            pCurrentList = (PFILE_ID_BOTH_DIR_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
+                            Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer =
+                                IterIdBothDirInfo(Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer, &CmpFileName);
                             break;
                         } // 일반적인 UI 탐색기에서 파일 정보를 요청할 때 사용하는 구조체
-                        case FileIdFullDirectoryInformation: {
-                            pCurrentList = (PFILE_ID_FULL_DIR_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
-                            break;
-                        }
-                        case FileBothDirectoryInformation: {
-                            pCurrentList = (PFILE_BOTH_DIR_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
-                            break;
-                        } // FindFirstFile() API에서 파일 정보를 요청할 때 사용하는 구조체
-                        case FileFullDirectoryInformation: {
-                            pCurrentList = (PFILE_FULL_DIR_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
-                            break;
-                        }
+                        //case FileIdFullDirectoryInformation: {
+                        //    PFILE_ID_FULL_DIR_INFORMATION pCurrentList = (PFILE_ID_FULL_DIR_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
+                        //    break;
+                        //}
+                        //case FileBothDirectoryInformation: {
+                        //    PFILE_BOTH_DIR_INFORMATION pCurrentList = (PFILE_BOTH_DIR_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
+                        //    break;
+                        //} // FindFirstFile() API에서 파일 정보를 요청할 때 사용하는 구조체
+                        //case FileFullDirectoryInformation: {
+                        //    PFILE_FULL_DIR_INFORMATION pCurrentList = (PFILE_FULL_DIR_INFORMATION)Data->Iopb->Parameters.DirectoryControl.QueryDirectory.DirectoryBuffer;
+                        //    break;
+                        //}
                         default: {
                             return FLT_POSTOP_FINISHED_PROCESSING;
                             break;
                         }
                     }
-                    Data->IoStatus.Status = STATUS_NO_MORE_ENTRIES;
+                    //Data->IoStatus.Status = STATUS_NO_MORE_ENTRIES;
+                   
+                    
                     return FLT_POSTOP_FINISHED_PROCESSING;
 
 
@@ -223,5 +394,6 @@ PostOperation(
     }
     return FLT_POSTOP_FINISHED_PROCESSING;
 }
-// 예제 코드로 일부러 함수화 시키지 않았습니다.
+// 예제 코드의 분기문으로 일부러 함수화 시키지 않았습니다.
 // 양해 부탁드립니다.
+
