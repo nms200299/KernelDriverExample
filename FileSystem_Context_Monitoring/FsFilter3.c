@@ -122,9 +122,9 @@ VOID ReleaseList(PCTX_STREAMHANDLE pContext);
 
 #define CTX_SIZE_STREAMHANDLE	    sizeof(CTX_STREAMHANDLE)
 #define CTX_SIZE_STREAMHANDLE_IRP	sizeof(CTX_STREAMHANDLE_IRP)
-#define CTX_TAG_STREAMHANDLE	    'TEST'
-#define CTX_TAG_STREAMHANDLE_IRP    'LIST'
-#define CTX_TAG_FILENAME              'FILE'
+#define CTX_TAG_STREAMHANDLE	        'TEST'
+#define CTX_TAG_STREAMHANDLE_IRP        'LIST'
+#define CTX_TAG_FILENAME                'FILE'
 
 void FreeUnicodeString(PUNICODE_STRING String, ULONG Tag) {
     if (String == NULL) return;
@@ -148,13 +148,12 @@ VOID CtxCleanup(
 }
 
 
-
 const FLT_CONTEXT_REGISTRATION CtxRegistration[] = {
-    { FLT_STREAMHANDLE_CONTEXT,
-      0,
-      CtxCleanup,
-      CTX_SIZE_STREAMHANDLE,
-      CTX_TAG_STREAMHANDLE},
+    { FLT_STREAMHANDLE_CONTEXT, // ContextType
+      0,                        // Flags
+      CtxCleanup,               // ContextCleanupCallback
+      CTX_SIZE_STREAMHANDLE,    // Size
+      CTX_TAG_STREAMHANDLE },   // PoolTag
     { FLT_CONTEXT_END }
 };
 
@@ -259,6 +258,12 @@ VOID PrintList(PCTX_STREAMHANDLE pContext) {
                     pContext->PID);
                 break;
             }
+            case FILE_DELETE_ON_CLOSE: {
+                DbgPrint("[MINIFILTER] FilePath=%wZ / PID=%lu / IRP_MJ_CREATE (DELETE)\n",
+                    &pContext->FileName,
+                    pContext->PID);
+                break;
+            }
             case IRP_MJ_READ: {
                 DbgPrint("[MINIFILTER] FilePath=%wZ / PID=%lu / IRP_MJ_READ\n",
                     &pContext->FileName,
@@ -273,6 +278,24 @@ VOID PrintList(PCTX_STREAMHANDLE pContext) {
             }
             case IRP_MJ_CLOSE: {
                 DbgPrint("[MINIFILTER] FilePath=%wZ / PID=%lu / IRP_MJ_CLOSE\n",
+                    &pContext->FileName,
+                    pContext->PID);
+                break;
+            }
+
+            case (ULONG)FileRenameInformation:
+            case (ULONG)FileRenameInformationBypassAccessCheck:
+            case (ULONG)FileRenameInformationEx:
+            case (ULONG)FileRenameInformationExBypassAccessCheck: {
+                DbgPrint("[MINIFILTER] FilePath=%wZ / PID=%lu / IRP_SET_INFO (MOVE)\n",
+                    &pContext->FileName,
+                    pContext->PID);
+                break;
+            }
+
+            case (ULONG)FileDispositionInformation:
+            case (ULONG)FileDispositionInformationEx: {
+                DbgPrint("[MINIFILTER] FilePath=%wZ / PID=%lu / IRP_SET_INFO (DELETE)\n",
                     &pContext->FileName,
                     pContext->PID);
                 break;
@@ -323,15 +346,53 @@ PreOperation(
     // (참조 카운트 : 2)
     FltReleaseContext((PFLT_CONTEXT)pContext); // (참조 카운트 : 1)
 
-    InsertList(Data->Iopb->MajorFunction, pContext->pList);
+    
 
     switch (Data->Iopb->MajorFunction) {
+        case IRP_MJ_READ:
+        case IRP_MJ_WRITE: {
+            InsertList(Data->Iopb->MajorFunction, pContext->pList);
+            break;
+        } // READ, WRITE는 리스트에 삽입만 수행
+
         case IRP_MJ_CLOSE: {
+            InsertList(Data->Iopb->MajorFunction, pContext->pList);
             PrintList(pContext);
             FltDeleteStreamHandleContext(FltObjects->Instance, FltObjects->FileObject, NULL);
-            // Context 삭제
-            return FLT_PREOP_SUCCESS_NO_CALLBACK;
-        }
+            break;
+        } // CLOSE는 삽입 후, 출력, Context 해제 수행
+
+        case IRP_MJ_SET_INFORMATION: {
+            FILE_INFORMATION_CLASS FileInfoClass = Data->Iopb->Parameters.SetFileInformation.FileInformationClass;
+            PVOID FileInfoBuffer = Data->Iopb->Parameters.SetFileInformation.InfoBuffer;
+
+            switch (FileInfoClass) {
+                case FileDispositionInformation: {
+                    PFILE_DISPOSITION_INFORMATION DispositionInfo = (PFILE_DISPOSITION_INFORMATION)FileInfoBuffer;
+                    if (DispositionInfo->DeleteFile) {
+                        InsertList((ULONG)FileInfoClass, pContext->pList);
+                    }
+                    break;
+                } // 파일 삭제 요청(DeleteFile() 등)이면, 리스트에 삽입 수행
+
+                case FileDispositionInformationEx: {
+                    PFILE_DISPOSITION_INFORMATION_EX DispositionInfoEx = (PFILE_DISPOSITION_INFORMATION_EX)FileInfoBuffer;
+                    if (DispositionInfoEx->Flags != FILE_DISPOSITION_DO_NOT_DELETE) {
+                        InsertList((ULONG)FileInfoClass, pContext->pList);
+                    }
+                    break;
+                } // 파일 삭제 요청(NtDeleteFile() 등)이면, 리스트에 삽입 수행
+
+                case FileRenameInformation:
+                case FileRenameInformationBypassAccessCheck:
+                case FileRenameInformationEx:
+                case FileRenameInformationExBypassAccessCheck: {
+                    InsertList((ULONG)FileInfoClass, pContext->pList);
+                    break;
+                } // 파일 이동, 이름 변경 요청 (MoveFile() 등)이면, 리스트에 삽입 수행
+            }
+            break;
+        } //SET_INFORMATION는 조건에 따라 분기하여 삽입 수행
     }
 
     return FLT_PREOP_SUCCESS_NO_CALLBACK;
@@ -400,10 +461,21 @@ PostOperation(
                 return FLT_POSTOP_FINISHED_PROCESSING;
             }
             RtlZeroMemory(pContext->pList, CTX_SIZE_STREAMHANDLE_IRP);
-            pContext->pList->IPR_OPERATION = IRP_MJ_CREATE;
+         
+            ULONG options = Data->Iopb->Parameters.Create.Options;
+            if (options & FILE_DELETE_ON_CLOSE) {
+                pContext->pList->IPR_OPERATION = FILE_DELETE_ON_CLOSE;
+                // 핸들이 종료될 때 파일도 같이 삭제되는 옵션
+            } else {
+                pContext->pList->IPR_OPERATION = IRP_MJ_CREATE;
+            }
             pContext->pList->Front = pContext->pList;
             pContext->pList->Back = pContext->pList;
             // Context->List 설정
+
+
+            
+
 
             PETHREAD pETHREAD = Data->Thread;
             PEPROCESS pEPROCESS = IoThreadToProcess(pETHREAD);
