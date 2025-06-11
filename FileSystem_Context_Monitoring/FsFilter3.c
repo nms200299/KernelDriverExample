@@ -71,31 +71,11 @@ EXTERN_C_END
 //
 
 CONST FLT_OPERATION_REGISTRATION Callbacks[] = {
-    { IRP_MJ_CREATE,
-      0,
-     NULL,
-     PostOperation },
-      // ▲ 파일 핸들 열기
-    { IRP_MJ_READ,
-      0,
-     PreOperation,
-     NULL },
-      // ▲ 파일 데이터 읽기
-    { IRP_MJ_WRITE,
-      0,
-     PreOperation,
-     NULL },
-      // ▲ 파일 데이터 쓰기
-    { IRP_MJ_SET_INFORMATION ,
-      0,
-     PreOperation,
-     NULL },
-      // ▲ 파일 이름 변경, 이동, 삭제
-    { IRP_MJ_CLOSE,
-      0,
-     PreOperation,
-     NULL },
-      // ▲ 파일 핸들 닫기 
+    { IRP_MJ_CREATE, 0, NULL, PostOperation }, // 파일 핸들 열기
+    { IRP_MJ_READ, 0, PreOperation, NULL }, // 파일 데이터 읽기
+    { IRP_MJ_WRITE, 0, PreOperation, NULL }, // 파일 데이터 쓰기
+    { IRP_MJ_SET_INFORMATION, 0, PreOperation, NULL }, // 파일 이름 변경, 이동, 삭제
+    { IRP_MJ_CLOSE, 0, PreOperation, NULL },  // 파일 핸들 닫기 
     { IRP_MJ_OPERATION_END }
 };
 
@@ -415,7 +395,6 @@ PostOperation(
         return FLT_POSTOP_FINISHED_PROCESSING;
     } // IRQL 검사 (PASSIVE_LEVEL이 아닌 상태에서 Paged-Pool 메모리에 접근하지 못합니다)
 
-
     switch(Data->Iopb->MajorFunction) {
         case IRP_MJ_CREATE: {
             NTSTATUS status;
@@ -429,17 +408,17 @@ PostOperation(
                 return FLT_POSTOP_FINISHED_PROCESSING;
             } // 접근하려는 파일 경로를 구합니다.
 
+
             PCTX_STREAMHANDLE pContext = NULL;
             status = FltAllocateContext(FltObjects->Filter, FLT_STREAMHANDLE_CONTEXT, CTX_SIZE_STREAMHANDLE, NonPagedPool, (PFLT_CONTEXT*)&pContext);
             if ((!NT_SUCCESS(status)) || (pContext == NULL)) {
                 FltReleaseFileNameInformation(pFileInfo);
                 return FLT_POSTOP_FINISHED_PROCESSING;
             }
-            // Context 할당 (참조 카운트 : 1)
-
             RtlZeroMemory(pContext, CTX_SIZE_STREAMHANDLE);
-            // Context 변수 초기화
-            
+            // Context 할당 후 초기화 (참조 카운트 : 1)
+
+                        
             pContext->FileName.Length = pFileInfo->Name.Length;
             pContext->FileName.MaximumLength = pContext->FileName.Length + sizeof(WCHAR);
             pContext->FileName.Buffer = NULL;
@@ -451,9 +430,9 @@ PostOperation(
             }
             RtlZeroMemory(pContext->FileName.Buffer, pContext->FileName.MaximumLength);
             RtlCopyMemory(pContext->FileName.Buffer, pFileInfo->Name.Buffer, pFileInfo->Name.Length);
-            // pContext->FileName 설정
             FltReleaseFileNameInformation(pFileInfo);
-            // 파일 경로 할당 해제
+            // 접근하려는 파일 경로 설정
+
 
             pContext->pList = ExAllocatePoolWithTag(NonPagedPool, CTX_SIZE_STREAMHANDLE_IRP, CTX_TAG_STREAMHANDLE_IRP);
             if (pContext->pList == NULL) {
@@ -461,7 +440,6 @@ PostOperation(
                 return FLT_POSTOP_FINISHED_PROCESSING;
             }
             RtlZeroMemory(pContext->pList, CTX_SIZE_STREAMHANDLE_IRP);
-         
             ULONG options = Data->Iopb->Parameters.Create.Options;
             if (options & FILE_DELETE_ON_CLOSE) {
                 pContext->pList->IPR_OPERATION = FILE_DELETE_ON_CLOSE;
@@ -471,23 +449,14 @@ PostOperation(
             }
             pContext->pList->Front = pContext->pList;
             pContext->pList->Back = pContext->pList;
-            // Context->List 설정
-
-
-            
+            // 이중 원형 리스트 설정
 
 
             PETHREAD pETHREAD = Data->Thread;
             PEPROCESS pEPROCESS = IoThreadToProcess(pETHREAD);
             pContext->PID = (ULONG)(ULONG_PTR)PsGetProcessId(pEPROCESS);
-            // EPROCESS 구조체로 PID를 구합니다.
+            // PID 설정
 
-            PUNICODE_STRING pProcessName=NULL;
-            status = SeLocateProcessImageName(pEPROCESS, &pProcessName);
-            if (!NT_SUCCESS(status)) {
-                FltReleaseContext((PFLT_CONTEXT)pContext); // (참조 카운트 : 0)
-                return FLT_POSTOP_FINISHED_PROCESSING;
-            }
 
             status = FltSetStreamHandleContext(FltObjects->Instance, FltObjects->FileObject, FLT_SET_CONTEXT_REPLACE_IF_EXISTS, (PFLT_CONTEXT)pContext, NULL);
             if (!NT_SUCCESS(status)) {
@@ -495,6 +464,7 @@ PostOperation(
                 return FLT_POSTOP_FINISHED_PROCESSING;
             } // Context 등록 (참조 카운트 : 2)
             FltReleaseContext((PFLT_CONTEXT)pContext); // (참조 카운트 : 1)
+
 
             break;
         }
