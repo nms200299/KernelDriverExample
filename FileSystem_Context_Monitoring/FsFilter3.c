@@ -6,7 +6,8 @@ Module Name:
 
 Abstract:
 
-    미니필터의 Context를 이용한 파일 시스템 모니터링
+    미니필터의 Context와 이중 원형리스트를 이용하여
+    IRP 연속성 있는 파일 시스템 모니터링 구현
 
 Environment:
 
