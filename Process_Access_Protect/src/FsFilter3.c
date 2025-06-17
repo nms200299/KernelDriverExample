@@ -6,7 +6,7 @@ Module Name:
 
 Abstract:
 
-    ObRegisterCallbacks()을 이용한 프로세스 종료 방지
+    ObRegisterCallbacks를 이용한 프로세스 보호 기능 구현
 
 Environment:
 
