@@ -89,13 +89,12 @@ OB_PREOP_CALLBACK_STATUS ObPreCallback(PVOID RegistrationContext, POB_PRE_OPERAT
         return OB_PREOP_SUCCESS;
     } // 접근 당하는 프로세스 이름이 notepad.exe가 아니면 return
 
+
     ULONG DstEProcessID = HandleToULong(PsGetProcessId(pDstEProcess));
     ULONG SrcEProcessID = HandleToULong(PsGetCurrentProcessId());
     if (DstEProcessID == SrcEProcessID) {
         return OB_PREOP_SUCCESS;
     } // 접근하는 PID와 접근 당하는 PID와 동일하면 return
-
-
 
     PEPROCESS pSrcEProcess = PsGetCurrentProcess();
     PUNICODE_STRING SrcEProcessPath = NULL;
@@ -105,7 +104,7 @@ OB_PREOP_CALLBACK_STATUS ObPreCallback(PVOID RegistrationContext, POB_PRE_OPERAT
     } // 접근하는 프로세스 경로를 알아내지 못하면 return
     if ((SrcEProcessPath == NULL) || (SrcEProcessPath->Buffer == NULL) || (SrcEProcessPath->Length == 0)) {
         return OB_PREOP_SUCCESS;
-    } // 접근하는 프로세스 명이 비어있으면(시스템 프로세스면) return
+    } // 접근하는 프로세스 경로가 비어있으면(시스템 프로세스면) return
 
     UNICODE_STRING SrcCmpEProcessPattern;
     RtlInitUnicodeString(&SrcCmpEProcessPattern, L"\\DEVICE\\HARDDISKVOLUME*\\WINDOWS\\EXPLORER.EXE");
