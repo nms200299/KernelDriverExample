@@ -167,6 +167,12 @@ OB_PREOP_CALLBACK_STATUS ObPreCallback(PVOID RegistrationContext, POB_PRE_OPERAT
 }
 
 NTSTATUS ObRegisterInit() {
+    if (KeGetCurrentIrql() > APC_LEVEL) {
+        DbgPrint("[DRIVER] Driver IRQL Mismatched.\n");
+        DbgPrint("[DRIVER] Unload Driver\n");
+        return STATUS_UNSUCCESSFUL;
+    } // IRQL 체크 (ObRegisterCallbacks <= APC_LEVEL)
+
     OB_OPERATION_REGISTRATION ObOperationReg[2] = {0, };
     ObOperationReg[0].ObjectType = PsProcessType;
     ObOperationReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;

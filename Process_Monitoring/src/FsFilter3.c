@@ -46,6 +46,10 @@ void ProcessNotify(
     _In_ HANDLE ProcessId,
     _In_ BOOLEAN Create
 ) {
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        return;
+    } // IRQL 체크 (ProcessNotify == PASSIVE_LEVEL)
+
     UNREFERENCED_PARAMETER(ParentId);
     if (PsGetProcessImageFileName == NULL) {
         return;
@@ -84,8 +88,14 @@ DriverEntry(
     _In_ PUNICODE_STRING RegistryPath
 )
 {
-    NTSTATUS status;
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        DbgPrint("[DRIVER] Driver IRQL Mismatched.\n");
+        DbgPrint("[DRIVER] Unload Driver\n");
+        return STATUS_UNSUCCESSFUL;
+    } // IRQL 체크 (PsSetCreateProcessNotifyRoutine == PASSIVE_LEVEL)
+
     UNREFERENCED_PARAMETER(RegistryPath);
+    NTSTATUS status;
     DriverObject->DriverUnload = UnloadDriver;
 
     PsGetProcessImageFileName = NULL;

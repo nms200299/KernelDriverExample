@@ -46,10 +46,15 @@ void ObPostOperation (
     PVOID RegistrationContext,
     POB_POST_OPERATION_INFORMATION pOperationInformation
 ) {
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        return;
+    } // IRQL 체크 (ObPostOperation == PASSIVE_LEVEL)
+
     UNREFERENCED_PARAMETER(RegistrationContext);
     if (PsGetProcessImageFileName == NULL) {
         return;
     } // Undocumented API에 대한 주소가 없으면 return
+
 
     PEPROCESS pDstEProcess = NULL;
     if (pOperationInformation->ObjectType == *PsThreadType) {
@@ -102,6 +107,12 @@ void ObPostOperation (
 
 
 NTSTATUS ObRegisterInit() {
+    if (KeGetCurrentIrql() > APC_LEVEL) {
+        DbgPrint("[DRIVER] Driver IRQL Mismatched.\n");
+        DbgPrint("[DRIVER] Unload Driver\n");
+        return STATUS_UNSUCCESSFUL;
+    } // IRQL 체크 (ObRegisterCallbacks <= APC_LEVEL)
+
     OB_OPERATION_REGISTRATION ObOperationReg[2] = {0, };
     ObOperationReg[0].ObjectType = PsProcessType;
     ObOperationReg[0].Operations = OB_OPERATION_HANDLE_CREATE | OB_OPERATION_HANDLE_DUPLICATE;

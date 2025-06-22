@@ -44,9 +44,9 @@ void ProcessNotify(
     _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo
 ) {
     UNREFERENCED_PARAMETER(Process);
-    if (KeGetCurrentIrql() > APC_LEVEL) {
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
         return;
-    } // IRQL 체크
+    } // IRQL 체크 (ProcessNotify == PASSIVE_LEVEL)
 
     if (CreateInfo) {
         UNICODE_STRING CmpUnicodeString;
@@ -75,6 +75,12 @@ DriverEntry(
     _In_ PUNICODE_STRING RegistryPath
 )
 {
+    if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
+        DbgPrint("[DRIVER] Driver IRQL Mismatched.\n");
+        DbgPrint("[DRIVER] Unload Driver\n");
+        return STATUS_UNSUCCESSFUL;
+    } // IRQL 체크 (PsSetCreateProcessNotifyRoutineEx == PASSIVE_LEVEL)
+
     NTSTATUS status;
     UNREFERENCED_PARAMETER(RegistryPath);
     DriverObject->DriverUnload = UnloadDriver;
