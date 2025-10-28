@@ -37,44 +37,31 @@ EXTERN_C_END
 *************************************************************************/
 
 #define DRIVER_IOCTL    0x100
-#define DRIVER_IOCTL_PRINT_TEST 					CTL_CODE(FILE_DEVICE_UNKNOWN, DRIVER_IOCTL + 0x0000, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define DRIVER_IOCTL_UNLOAD_DRIVER					CTL_CODE(FILE_DEVICE_UNKNOWN, DRIVER_IOCTL + 0x0001, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define DRIVER_IOCTL_PROTECT_TEST 					CTL_CODE(FILE_DEVICE_UNKNOWN, DRIVER_IOCTL + 0x0000, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-PDRIVER_OBJECT gDriverObject;
-WCHAR TEST_MSG[] = L"Hello User!";
+NTSTATUS IsTrustedProcessByIrp(PIRP Irp) {
+    NTSTATUS status = STATUS_SUCCESS;
+    PEPROCESS pEProcess = IoGetRequestorProcess(Irp);
+    // IRP 생성 프로세스의 EPROCESS 객체를 구함
 
-typedef struct _DATA {
-    WCHAR InBuf[255];
-    WCHAR OutBuf[255];
-} DATA, *PDATA;
+    PUNICODE_STRING pEProcessPath = NULL;
+    status = SeLocateProcessImageName(pEProcess, &pEProcessPath);
+    if (!NT_SUCCESS(status) || (pEProcessPath == NULL) || (pEProcessPath->Buffer == NULL)) {
+        DbgPrint("[DRIVER] IOCTL - SeLocateProcessImageName Fail\n");
+        return STATUS_ACCESS_DENIED;
+    } // IRP 생성 프로세스의 전체 경로를 구함
 
-ULONG DeviceControlDispatch(PIRP Irp, PIO_STACK_LOCATION IrpStack) {
-    ULONG IoControlCode = IrpStack->Parameters.DeviceIoControl.IoControlCode;
+    UNICODE_STRING CmpPathPattern = RTL_CONSTANT_STRING(L"\\DEVICE\\HARDDISKVOLUME*\\ALLOW.EXE");
+    if (FsRtlIsNameInExpression(&CmpPathPattern, pEProcessPath, TRUE, NULL)) {
+        ExFreePool(pEProcessPath);
+        DbgPrint("[DRIVER] IOCTL - Connected User-Application\n");
+        return STATUS_SUCCESS;
+    } // 접근하는 프로세스 경로가 [ROOT_PATH]\ALLOW.EXE면 return
 
-    switch (IoControlCode) {
-        case DRIVER_IOCTL_PRINT_TEST: {
-            if (IrpStack->Parameters.DeviceIoControl.InputBufferLength > 2000) break;
-            // Buffer 길이 검사
-            PDATA Message = (PDATA)Irp->AssociatedIrp.SystemBuffer;
-            DbgPrint("[DRIVER] IOCTL - Input Msg : %ls\n", Message->InBuf);
-            // Input Message 출력
-            RtlCopyMemory(Message->OutBuf, TEST_MSG , sizeof(TEST_MSG));
-            DbgPrint("[DRIVER] IOCTL - Output Msg : %ls\n", Message->OutBuf);
-            // Output Message 설정
-            return sizeof(DATA);
-            break;
-        } // 드라이버 테스트 문구 출력
-
-        case DRIVER_IOCTL_UNLOAD_DRIVER: {
-            DbgPrint("[DRIVER] IOCTL - Driver Unloadable.\n");
-            gDriverObject->DriverUnload = UnloadDriver;
-            break;
-        } // 드라이버 언로드 콜백 지정
-    }
-
-    return 0;
+    ExFreePool(pEProcessPath);
+    DbgPrint("[DRIVER] IOCTL - Denied User-Application\n");
+    return STATUS_ACCESS_DENIED;
 }
-
 
 NTSTATUS Dispatch(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     UNREFERENCED_PARAMETER(DeviceObject);
@@ -84,11 +71,12 @@ NTSTATUS Dispatch(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
     // IRP 스택을 구함
 
     Irp->IoStatus.Information = 0;
-    // 기본적으로 출력 버퍼 없음으로 지정
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    // IRP의 기본 반환 값 지정
 
     switch (IrpStack->MajorFunction) {
         case IRP_MJ_CREATE: {
-            DbgPrint("[DRIVER] IOCTL - Connected User-Application\n");
+            Irp->IoStatus.Status = IsTrustedProcessByIrp(Irp);
             break;
         } // 핸들 생성 처리
         case IRP_MJ_CLOSE: {
@@ -96,13 +84,10 @@ NTSTATUS Dispatch(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
             break;
         } // 핸들 종료 처리
         case IRP_MJ_DEVICE_CONTROL: {
-            Irp->IoStatus.Information = DeviceControlDispatch(Irp, IrpStack);
+            DbgPrint("[DRIVER] IOCTL - Recive I/O Message\n");
             break;
         } // IOCTL 메시지 처리
     }
-
-    Irp->IoStatus.Status = STATUS_SUCCESS;
-    // Blind SQLI와 같이 반환 값을 통한 로직 유추 방지를 위해 하나의 값으로 고정
 
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     // IRP 완료 처리
@@ -128,10 +113,8 @@ DriverEntry(
     UNREFERENCED_PARAMETER(RegistryPath);
 
     DbgPrint("[DRIVER] Driver Load.\n");
-    gDriverObject = DriverObject;
-
-    DriverObject->DriverUnload = NULL;
-    // 드라이버 종료 방지 설정
+    DriverObject->DriverUnload = UnloadDriver;
+    // 드라이버 언로드 콜백 지정
 
     PDEVICE_OBJECT DeviceObject = NULL;
     Status = IoCreateDevice(DriverObject, 0, &DeviceName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &DeviceObject);
