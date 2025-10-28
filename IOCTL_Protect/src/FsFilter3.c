@@ -6,7 +6,7 @@ Module Name:
 
 Abstract:
 
-    IOCTL를 이용한 User-Application 통신 예제
+    IOCTL 접근 제어를 통한 커널 드라이버 보호
 
 Environment:
 
